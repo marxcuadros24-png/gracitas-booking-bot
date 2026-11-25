@@ -1,44 +1,110 @@
-# WhatsApp + LLM Booking System
+# Gracitas Booking Bot
 
-Sistema de reservas por WhatsApp Cloud API con bloqueo de solapamientos en PostgreSQL (`tstzrange` + `btree_gist` + `EXCLUDE USING gist`), cola en Redis (`BullMQ`) y orquestador LLM con Function Calling determinista.
+Asistente conversacional de reservas por **WhatsApp Cloud API** para **Gracitas** (complejo de canchas de grass sintético), construido con **Node.js + TypeScript**, **PostgreSQL** (`tstzrange` + `btree_gist`), **Redis / BullMQ** y **LLM Function Calling**.
+
+---
+
+## Características principales
+
+- **Cero dobles reservas concurrentes:** Restricción `EXCLUDE USING gist (resource_id WITH =, time_range WITH &&) WHERE (status = 'confirmed')` en PostgreSQL. Si dos clientes confirman el mismo horario en el mismo milisegundo, el segundo recibe `conflict` con horarios alternativos reales.
+- **Webhook rápido (< 5 s) y seguro:**
+  - `GET /webhook`: verificación en tiempo constante de `hub.verify_token`.
+  - `POST /webhook`: validación HMAC-SHA256 (`X-Hub-Signature-256`), deduplicación por `wamid` en Redis y encolado inmediato en BullMQ.
+- **Orquestador LLM determinista:**
+  - El modelo nunca toca la base de datos directamente; opera mediante 4 herramientas estrictas (`check_availability`, `create_booking`, `get_user_bookings`, `cancel_booking`) con límite de 3 iteraciones por turno.
+  - Inyección de fecha/hora exacta en `America/Lima`, regla de confirmación explícita previa a reservar y bloqueo estricto de temas ajenos al negocio.
+  - Protección anti-IDOR: el teléfono del cliente se toma siempre de la sesión autenticada por Meta.
+- **Regla de ventana de 24 horas:** Validación automática de `last_user_message_at` antes de enviar texto libre, con soporte de `sendWhatsAppTemplate` para recordatorios fuera de ventana.
+- **Clean Architecture:** Puerto `BookingRepository` en dominio (`src/domain/booking.ts`) desacoplado del adaptador `PgBookingRepository` (`src/tools/bookingRepository.ts`).
+
+---
+
+## Reglas de negocio (Gracitas)
+
+| Parámetro | Valor |
+|---|---|
+| Canchas activas | `Cancha 1`, `Cancha 2` |
+| Horario de atención | `15:00` a `23:00` (`America/Lima`) |
+| Duración por turno | `60 minutos` |
+| Tarifa | `S/ 40.00` por hora |
+
+---
 
 ## Arquitectura
 
-1. **PostgreSQL (`src/db/schema.sql`)**:
-   - `resources`: canchas, consultorios o servicios con horario de atención y duración de slot.
-   - `bookings`: usa `time_range TSTZRANGE` y `CONSTRAINT bookings_no_overlap EXCLUDE USING gist (resource_id WITH =, time_range WITH &&) WHERE (status = 'confirmed')`. Rechaza inserciones concurrentes solapadas con SQLSTATE `23P01`.
-   - `chat_sessions`: rastrea `last_user_message_at` para validar la ventana de 24 horas de WhatsApp.
-   - `chat_messages`: historial corto por teléfono y columna `wamid UNIQUE` para idempotencia.
-
-2. **Webhook HTTP (`src/server.ts`, `src/whatsapp/webhook.ts`)**:
-   - `GET /webhook`: valida `hub.verify_token` y retorna `hub.challenge`.
-   - `POST /webhook`: verifica `X-Hub-Signature-256` con HMAC-SHA256, deduplica por `wamid` en Redis, encola en BullMQ y responde `200 OK` en < 5s.
-
-3. **Worker & Orquestador LLM (`src/worker.ts`, `src/llm/orchestrator.ts`)**:
-   - Consume la cola de Redis, inyecta la fecha/hora actual en `America/Lima`, carga los últimos 10 mensajes y ejecuta hasta 3 iteraciones de herramientas (`check_availability`, `create_booking`, `get_user_bookings`, `cancel_booking`).
-   - Si `create_booking` recibe error `23P01`, devuelve `{ "status": "conflict", "alternatives": [...] }` al LLM.
-   - Valida la ventana de 24 horas en `src/whatsapp/client.ts` antes de enviar texto libre.
-
-## Arranque con Docker
-
-```bash
-cp .env.example .env
-# Completa WHATSAPP_*, LLM_API_KEY en .env
-docker compose up --build -d
+```text
+WhatsApp User ──► Meta Cloud API ──► POST /webhook (Express, HMAC + wamid dedup)
+                                           │
+                                           ▼ (200 OK < 5s)
+                                     Redis / BullMQ
+                                           │
+                                           ▼
+                                   Worker (LLM + Tools)
+                                    ├──► PostgreSQL (GiST lock + chat_messages)
+                                    └──► Meta Graph API (24h window guard)
 ```
 
-## Exponer webhook local con Cloudflare Tunnel o ngrok
+### Estructura del proyecto
 
-Con Cloudflare Tunnel:
-```bash
+```text
+src/
+├── config/env.ts                  # Validación estricta de variables de entorno (Zod)
+├── domain/booking.ts              # Puerto BookingRepository, DTOs y regla de 24 h
+├── db/
+│   ├── schema.sql                 # Tablas, GiST exclusion, CHECK e índices parciales
+│   ├── migrate.ts                 # Ejecutor de migraciones
+│   ├── pool.ts                    # Pool de conexiones PostgreSQL
+│   └── chatRepository.ts          # Sesiones e historial corto (últimos 10 mensajes)
+├── llm/
+│   ├── prompt.ts                  # System prompt de Gracitas y límites de dominio
+│   └── orchestrator.ts            # Bucle de tool calling (máx. 3 iteraciones)
+├── queue/
+│   ├── redis.ts                   # Conexión ioredis
+│   └── bookingQueue.ts            # Cola BullMQ whatsapp-messages
+├── tools/
+│   ├── bookingRepository.ts       # Adaptador PgBookingRepository
+│   └── definitions.ts             # Esquemas JSON estrictos y dispatcher
+├── whatsapp/
+│   ├── signature.ts               # HMAC-SHA256 y comparación en tiempo constante
+│   ├── webhook.ts                 # Rutas GET / POST /webhook
+│   └── client.ts                  # Envío por Graph API (texto y templates)
+├── server.ts                      # Servidor HTTP Express (/health, /webhook)
+└── worker.ts                      # Consumidor BullMQ
+tests/                             # Unit tests + test real de concurrencia GiST
+```
+
+---
+
+## Arranque rápido con Docker
+
+1. Crea tu archivo `.env` a partir de la plantilla y completa tus credenciales (`WHATSAPP_*` y `LLM_API_KEY`):
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+2. Levanta PostgreSQL, Redis, migraciones, API y Worker:
+   ```powershell
+   docker compose up --build -d
+   ```
+3. Verifica salud del servicio:
+   ```powershell
+   Invoke-RestMethod http://localhost:3000/health
+   ```
+
+### Exponer webhook local para Meta
+
+Con **Cloudflare Tunnel** (o `ngrok http 3000`):
+```powershell
 cloudflared tunnel --url http://localhost:3000
 ```
+Configura `https://<tu-subdominio>/webhook` y tu `WHATSAPP_VERIFY_TOKEN` en **Meta for Developers > WhatsApp > Configuration** y suscríbete al campo `messages`.
 
-O con ngrok:
+---
+
+## Pruebas automatizadas
+
+Incluye tests unitarios (firma HMAC, ventana 24 h, orquestador y anti-IDOR) y test de integración real contra PostgreSQL verificando que dos reservas simultáneas produzcan exactamente `confirmed` + `conflict`:
+
 ```bash
-ngrok http 3000
+npm run typecheck
+RUN_PG_INTEGRATION=1 npm test
 ```
-
-Configura la URL HTTPS resultante en **Meta for Developers > WhatsApp > Configuration**:
-- **Callback URL**: `https://<tu-subdominio>/webhook`
-- **Verify Token**: el valor de `WHATSAPP_VERIFY_TOKEN` en tu `.env`.
