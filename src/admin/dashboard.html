@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gracitas — Panel de Administración</title>
+  <style>
+    :root {
+      --bg-canvas: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-subtle: #f1f5f9;
+      --border: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --accent: #15803d;
+      --accent-hover: #166534;
+      --accent-soft: #dcfce7;
+      --danger: #b91c1c;
+      --danger-soft: #fee2e2;
+      --radius: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg-canvas);
+      color: var(--text-primary);
+      line-height: 1.45;
+    }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .header-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: grid;
+      place-items: center;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    input, select, button {
+      font: inherit;
+      font-size: 16px;
+      min-height: 44px;
+      border-radius: 8px;
+    }
+
+    input, select {
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      padding: 0 12px;
+      color: var(--text-primary);
+    }
+
+    button {
+      border: 1px solid transparent;
+      padding: 0 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: var(--bg-surface); border-color: var(--border); color: var(--text-primary); }
+    .btn-secondary:hover { background: var(--bg-subtle); }
+    .btn-danger { background: var(--danger-soft); color: var(--danger); }
+    .btn-danger:hover { background: #fecaca; }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      gap: 20px;
+    }
+
+    .auth-card {
+      max-width: 420px;
+      margin: 48px auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .kpi-label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .kpi-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+    }
+
+    .courts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .court-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .court-header {
+      padding: 14px 16px;
+      background: var(--bg-subtle);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+    }
+
+    .slot-list {
+      display: grid;
+    }
+
+    .slot-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .slot-row:last-child { border-bottom: none; }
+
+    .slot-meta {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    .slot-time { font-weight: 600; }
+    .slot-detail {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+
+    .badge-free { background: var(--accent-soft); color: var(--accent); }
+    .badge-booked { background: var(--bg-subtle); color: var(--text-primary); }
+
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      background: var(--danger-soft);
+      color: var(--danger);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .skeleton {
+      height: 220px;
+      border-radius: var(--radius);
+      background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.2s infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    dialog {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      width: min(440px, calc(100vw - 32px));
+    }
+
+    dialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+
+    .form-grid {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .form-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <line x1="12" y1="4" x2="12" y2="20" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </span>
+        <span>Gracitas Admin</span>
+      </div>
+      <div id="topControls" class="controls hidden">
+        <input id="dateInput" type="date" aria-label="Fecha" />
+        <button id="refreshBtn" class="btn-secondary" type="button">Actualizar</button>
+        <button id="newBookingBtn" class="btn-primary" type="button">Nueva reserva</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="authSection" class="auth-card">
+      <h1 style="margin:0;font-size:1.25rem;">Acceso administrativo</h1>
+      <p style="margin:0;color:var(--text-secondary);font-size:0.9rem;">
+        Ingresa el token de administración configurado en <code>ADMIN_TOKEN</code>.
+      </p>
+      <input id="tokenInput" type="password" placeholder="Token de administrador" autocomplete="current-password" />
+      <button id="loginBtn" class="btn-primary" type="button">Ingresar</button>
+      <div id="authError" class="alert hidden"></div>
+    </section>
+
+    <section id="dashboardSection" class="hidden" style="display:grid;gap:20px;">
+      <div id="errorBanner" class="alert hidden">
+        <span id="errorText"></span>
+        <button id="retryBtn" class="btn-secondary" type="button">Reintentar</button>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi-card">
+          <div class="kpi-label">Reservas confirmadas</div>
+          <div id="kpiCount" class="kpi-value tabular">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Ocupación del día</div>
+          <div id="kpiOccupancy" class="kpi-value tabular">0%</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Ingresos proyectados</div>
+          <div id="kpiRevenue" class="kpi-value tabular">S/ 0.00</div>
+        </div>
+      </div>
+
+      <div id="loadingState" class="courts-grid hidden">
+        <div class="skeleton"></div>
+        <div class="skeleton"></div>
+      </div>
+
+      <div id="courtsGrid" class="courts-grid"></div>
+    </section>
+  </main>
+
+  <dialog id="bookingDialog">
+    <form id="bookingForm" method="dialog">
+      <h2 style="margin:0;font-size:1.1rem;">Nueva reserva manual</h2>
+      <div class="form-grid">
+        <select id="modalCourt" required></select>
+        <input id="modalStartHour" type="number" min="15" max="22" value="19" required placeholder="Hora inicio (15-22)" />
+        <input id="modalDuration" type="number" min="1" max="4" value="1" required placeholder="Horas (1-4)" />
+        <input id="modalName" type="text" required placeholder="Nombre del cliente" />
+        <input id="modalPhone" type="tel" required placeholder="Teléfono (ej. 51999888777)" />
+      </div>
+      <div id="modalError" class="alert hidden" style="margin-top:10px;"></div>
+      <div class="form-actions">
+        <button id="closeDialogBtn" class="btn-secondary" type="button">Cancelar</button>
+        <button class="btn-primary" type="submit">Confirmar reserva</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const authSection = document.getElementById('authSection');
+    const dashboardSection = document.getElementById('dashboardSection');
+    const topControls = document.getElementById('topControls');
+    const dateInput = document.getElementById('dateInput');
+    const tokenInput = document.getElementById('tokenInput');
+    const authError = document.getElementById('authError');
+    const errorBanner = document.getElementById('errorBanner');
+    const errorText = document.getElementById('errorText');
+    const loadingState = document.getElementById('loadingState');
+    const courtsGrid = document.getElementById('courtsGrid');
+    const bookingDialog = document.getElementById('bookingDialog');
+    const modalCourt = document.getElementById('modalCourt');
+    const modalError = document.getElementById('modalError');
+
+    let adminToken = sessionStorage.getItem('gracitas_admin_token') || '';
+    let currentResources = [];
+
+    function getLimaToday() {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    }
+
+    dateInput.value = getLimaToday();
+
+    async function apiFetch(url, options = {}) {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+          ...(options.headers || {}),
+        },
+      });
+      if (res.status === 401) {
+        sessionStorage.removeItem('gracitas_admin_token');
+        adminToken = '';
+        showAuth('Token inválido o expirado.');
+        throw new Error('Unauthorized');
+      }
+      return res;
+    }
+
+    function showAuth(msg = '') {
+      authSection.classList.remove('hidden');
+      dashboardSection.classList.add('hidden');
+      topControls.classList.add('hidden');
+      if (msg) {
+        authError.textContent = msg;
+        authError.classList.remove('hidden');
+      } else {
+        authError.classList.add('hidden');
+      }
+    }
+
+    function showDashboard() {
+      authSection.classList.add('hidden');
+      dashboardSection.classList.remove('hidden');
+      topControls.classList.remove('hidden');
+    }
+
+    function formatLimaHour(iso) {
+      return new Intl.DateTimeFormat('es-PE', {
+        timeZone: 'America/Lima',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(new Date(iso));
+    }
+
+    async function loadOverview() {
+      errorBanner.classList.add('hidden');
+      loadingState.classList.remove('hidden');
+      courtsGrid.innerHTML = '';
+
+      try {
+        const res = await apiFetch(`/admin/api/overview?date=${encodeURIComponent(dateInput.value)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error cargando datos');
+
+        currentResources = data.resources;
+        renderModalCourts(data.resources);
+        renderKpis(data.resources, data.bookings);
+        renderCourts(data.resources, data.bookings);
+      } catch (err) {
+        if (err.message !== 'Unauthorized') {
+          errorText.textContent = err.message;
+          errorBanner.classList.remove('hidden');
+        }
+      } finally {
+        loadingState.classList.add('hidden');
+      }
+    }
+
+    function renderModalCourts(resources) {
+      modalCourt.innerHTML = '';
+      for (const r of resources) {
+        const opt = document.createElement('option');
+        opt.value = r.id;
+        opt.textContent = r.name;
+        modalCourt.appendChild(opt);
+      }
+    }
+
+    function renderKpis(resources, bookings) {
+      const confirmed = bookings.filter((b) => b.status === 'confirmed');
+      const totalSlots = resources.reduce((acc, r) => acc + (r.close_hour - r.open_hour), 0);
+      const bookedHours = confirmed.reduce((acc, b) => {
+        return acc + Math.round((new Date(b.end_time) - new Date(b.start_time)) / 3600000);
+      }, 0);
+      const revenue = confirmed.reduce((acc, b) => acc + Number(b.total_price || 0), 0);
+
+      document.getElementById('kpiCount').textContent = String(confirmed.length);
+      document.getElementById('kpiOccupancy').textContent =
+        totalSlots > 0 ? `${Math.round((bookedHours / totalSlots) * 100)}%` : '0%';
+      document.getElementById('kpiRevenue').textContent = `S/ ${revenue.toFixed(2)}`;
+    }
+
+    function renderCourts(resources, bookings) {
+      courtsGrid.innerHTML = '';
+      const confirmed = bookings.filter((b) => b.status === 'confirmed');
+
+      for (const court of resources) {
+        const card = document.createElement('article');
+        card.className = 'court-card';
+
+        const header = document.createElement('div');
+        header.className = 'court-header';
+        header.innerHTML = `<span>${court.name}</span><span class="tabular" style="font-size:0.85rem;color:var(--text-secondary);">S/ ${Number(court.price_per_hour).toFixed(2)}/h</span>`;
+        card.appendChild(header);
+
+        const list = document.createElement('div');
+        list.className = 'slot-list';
+
+        for (let h = court.open_hour; h < court.close_hour; h++) {
+          const slotStart = new Date(`${dateInput.value}T${String(h).padStart(2, '0')}:00:00-05:00`);
+          const slotEnd = new Date(`${dateInput.value}T${String(h + 1).padStart(2, '0')}:00:00-05:00`);
+
+          const match = confirmed.find((b) => {
+            if (b.resource_id !== court.id) return false;
+            const bs = new Date(b.start_time);
+            const be = new Date(b.end_time);
+            return bs < slotEnd && be > slotStart;
+          });
+
+          const row = document.createElement('div');
+          row.className = 'slot-row';
+
+          const label = `${String(h).padStart(2, '0')}:00 - ${String(h + 1).padStart(2, '0')}:00`;
+
+          if (match) {
+            row.innerHTML = `
+              <div class="slot-meta">
+                <div class="slot-time tabular">${label} <span class="badge badge-booked">Reservado</span></div>
+                <div class="slot-detail">${match.customer_name} (${match.customer_phone}) · S/ ${Number(match.total_price).toFixed(2)}</div>
+              </div>
+              <button class="btn-danger" type="button" data-cancel="${match.id}">Cancelar</button>
+            `;
+          } else {
+            row.innerHTML = `
+              <div class="slot-meta">
+                <div class="slot-time tabular">${label} <span class="badge badge-free">Libre</span></div>
+                <div class="slot-detail">Disponible para reserva</div>
+              </div>
+              <button class="btn-secondary" type="button" data-book-court="${court.id}" data-book-hour="${h}">Reservar</button>
+            `;
+          }
+
+          list.appendChild(row);
+        }
+
+        card.appendChild(list);
+        courtsGrid.appendChild(card);
+      }
+
+      courtsGrid.querySelectorAll('[data-cancel]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-cancel');
+          btn.disabled = true;
+          await apiFetch(`/admin/api/bookings/${encodeURIComponent(id)}`, { method: 'DELETE' });
+          await loadOverview();
+        });
+      });
+
+      courtsGrid.querySelectorAll('[data-book-court]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          modalCourt.value = btn.getAttribute('data-book-court');
+          document.getElementById('modalStartHour').value = btn.getAttribute('data-book-hour');
+          document.getElementById('modalDuration').value = '1';
+          modalError.classList.add('hidden');
+          bookingDialog.showModal();
+        });
+      });
+    }
+
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      adminToken = tokenInput.value.trim();
+      if (!adminToken) return;
+      sessionStorage.setItem('gracitas_admin_token', adminToken);
+      showDashboard();
+      await loadOverview();
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', loadOverview);
+    document.getElementById('retryBtn').addEventListener('click', loadOverview);
+    dateInput.addEventListener('change', loadOverview);
+
+    document.getElementById('newBookingBtn').addEventListener('click', () => {
+      modalError.classList.add('hidden');
+      bookingDialog.showModal();
+    });
+    document.getElementById('closeDialogBtn').addEventListener('click', () => bookingDialog.close());
+
+    document.getElementById('bookingForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      modalError.classList.add('hidden');
+
+      const startHour = Number(document.getElementById('modalStartHour').value);
+      const duration = Number(document.getElementById('modalDuration').value);
+      const endHour = startHour + duration;
+
+      const startTime = `${dateInput.value}T${String(startHour).padStart(2, '0')}:00:00-05:00`;
+      const endTime = `${dateInput.value}T${String(endHour).padStart(2, '0')}:00:00-05:00`;
+
+      try {
+        const res = await apiFetch('/admin/api/bookings', {
+          method: 'POST',
+          body: JSON.stringify({
+            resourceId: modalCourt.value,
+            startTime,
+            endTime,
+            customerName: document.getElementById('modalName').value.trim(),
+            customerPhone: document.getElementById('modalPhone').value.trim(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.status !== 'confirmed') {
+          modalError.textContent = data.message || 'No se pudo crear la reserva.';
+          modalError.classList.remove('hidden');
+          return;
+        }
+        bookingDialog.close();
+        document.getElementById('modalName').value = '';
+        document.getElementById('modalPhone').value = '';
+        await loadOverview();
+      } catch (err) {
+        modalError.textContent = err.message;
+        modalError.classList.remove('hidden');
+      }
+    });
+
+    if (adminToken) {
+      showDashboard();
+      loadOverview();
+    } else {
+      showAuth();
+    }
+  </script>
+</body>
+</html>

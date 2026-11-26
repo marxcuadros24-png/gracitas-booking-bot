@@ -73,6 +73,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_MAX_TOOL_ITERATIONS: ${LLM_MAX_TOOL_ITERATIONS:-3}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-gracitas-admin-2026}
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,6 +111,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_MAX_TOOL_ITERATIONS: ${LLM_MAX_TOOL_ITERATIONS:-3}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-gracitas-admin-2026}
     depends_on:
       postgres:
         condition: service_healthy

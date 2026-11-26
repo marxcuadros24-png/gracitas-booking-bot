@@ -1,7 +1,11 @@
 import OpenAI from 'openai';
 import { getEnv } from '../config/env.js';
 import type { StoredChatMessage } from '../db/chatRepository.js';
-import type { BookingRepository, ResourceSummary } from '../domain/booking.js';
+import type {
+  BookingRepository,
+  CreateBookingResult,
+  ResourceSummary,
+} from '../domain/booking.js';
 import { BOOKING_TOOLS, executeBookingTool } from '../tools/definitions.js';
 import { buildSystemPrompt } from './prompt.js';
 
@@ -14,6 +18,7 @@ export interface OrchestratorInput {
   resources: ResourceSummary[];
   maxIterations?: number;
   now?: Date;
+  onBookingConfirmed?: (booking: NonNullable<CreateBookingResult['booking']>) => Promise<void>;
 }
 
 export async function runLlmTurn(input: OrchestratorInput): Promise<string> {
@@ -71,6 +76,17 @@ export async function runLlmTurn(input: OrchestratorInput): Promise<string> {
         toolCall.function.arguments,
       );
       console.log(`[LLM] Tool ${toolCall.function.name} completed`);
+
+      if (toolCall.function.name === 'create_booking' && input.onBookingConfirmed) {
+        try {
+          const parsed = JSON.parse(toolOutput) as CreateBookingResult;
+          if (parsed.status === 'confirmed' && parsed.booking) {
+            await input.onBookingConfirmed(parsed.booking);
+          }
+        } catch {
+          // Ignore callback parsing errors
+        }
+      }
 
       messages.push({
         role: 'tool',

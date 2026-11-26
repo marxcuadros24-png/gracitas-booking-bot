@@ -1,8 +1,10 @@
 import express, { type Request } from 'express';
+import { createAdminRouter } from './admin/router.js';
 import { getEnv } from './config/env.js';
 import { closePool, getPool } from './db/pool.js';
 import { closeBookingQueue } from './queue/bookingQueue.js';
 import { closeRedis, getRedisConnection } from './queue/redis.js';
+import { closeReminderQueue } from './queue/reminderQueue.js';
 import { createWebhookRouter } from './whatsapp/webhook.js';
 
 interface RawBodyRequest extends Request {
@@ -34,6 +36,7 @@ export function createApp() {
   });
 
   app.use('/', createWebhookRouter());
+  app.use('/', createAdminRouter());
 
   return app;
 }
@@ -47,6 +50,7 @@ const server = app.listen(env.PORT, env.HOST, () => {
 async function shutdown() {
   server.close();
   await closeBookingQueue();
+  await closeReminderQueue();
   await closeRedis();
   await closePool();
   process.exit(0);

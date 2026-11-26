@@ -23,19 +23,23 @@ export interface ResourceSummary {
   open_hour: number;
   close_hour: number;
   price_per_hour: string;
+  evening_start_hour: number | null;
+  evening_price_per_hour: string | null;
 }
 
 export interface AvailableSlot {
   start_time: string;
   end_time: string;
   label: string;
+  price: number;
 }
 
 export interface CheckAvailabilityResult {
-  status: 'ok' | 'resource_not_found';
+  status: 'ok' | 'resource_not_found' | 'invalid_input';
   resource_id: string;
   resource_name?: string;
   date: string;
+  duration_hours?: number;
   timezone: string;
   available_slots: AvailableSlot[];
 }
@@ -53,9 +57,11 @@ export interface CreateBookingResult {
   booking?: {
     id: string;
     resource_id: string;
+    resource_name?: string;
     customer_name: string;
     start_time: string;
     end_time: string;
+    total_price: number;
     status: string;
   };
   message?: string;
@@ -69,6 +75,7 @@ export interface UserBookingItem {
   customer_name: string;
   start_time: string;
   end_time: string;
+  total_price: number;
   status: string;
 }
 
@@ -79,7 +86,11 @@ export interface CancelBookingResult {
 }
 
 export interface BookingRepository {
-  checkAvailability(resourceId: string, date: string): Promise<CheckAvailabilityResult>;
+  checkAvailability(
+    resourceId: string,
+    date: string,
+    durationHours?: number,
+  ): Promise<CheckAvailabilityResult>;
   createBooking(params: CreateBookingInput): Promise<CreateBookingResult>;
   getUserBookings(phone: string): Promise<UserBookingItem[]>;
   cancelBooking(bookingId: string, phone: string): Promise<CancelBookingResult>;

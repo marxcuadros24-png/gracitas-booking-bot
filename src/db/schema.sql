@@ -10,9 +10,15 @@ CREATE TABLE IF NOT EXISTS resources (
   open_hour SMALLINT NOT NULL DEFAULT 15 CHECK (open_hour BETWEEN 0 AND 23),
   close_hour SMALLINT NOT NULL DEFAULT 23 CHECK (close_hour BETWEEN 1 AND 24 AND close_hour > open_hour),
   price_per_hour NUMERIC(10, 2) NOT NULL DEFAULT 40.00 CHECK (price_per_hour >= 0),
+  evening_start_hour SMALLINT CHECK (evening_start_hour BETWEEN 0 AND 23),
+  evening_price_per_hour NUMERIC(10, 2) CHECK (evening_price_per_hour >= 0),
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE resources
+  ADD COLUMN IF NOT EXISTS evening_start_hour SMALLINT,
+  ADD COLUMN IF NOT EXISTS evening_price_per_hour NUMERIC(10, 2);
 
 CREATE TABLE IF NOT EXISTS bookings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -20,7 +26,9 @@ CREATE TABLE IF NOT EXISTS bookings (
   customer_phone TEXT NOT NULL,
   customer_name TEXT NOT NULL,
   time_range TSTZRANGE NOT NULL,
+  total_price NUMERIC(10, 2) NOT NULL DEFAULT 40.00 CHECK (total_price >= 0),
   status TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled')),
+  reminder_sent_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   cancelled_at TIMESTAMPTZ,
   CONSTRAINT chk_bookings_half_open_range CHECK (
@@ -31,6 +39,10 @@ CREATE TABLE IF NOT EXISTS bookings (
     time_range WITH &&
   ) WHERE (status = 'confirmed')
 );
+
+ALTER TABLE bookings
+  ADD COLUMN IF NOT EXISTS total_price NUMERIC(10, 2) NOT NULL DEFAULT 40.00,
+  ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
 
 DO $$
 BEGIN
