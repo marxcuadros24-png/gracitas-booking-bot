@@ -83,8 +83,8 @@ export function createAdminRouter(): Router {
   });
 
   router.delete('/admin/api/bookings/:id', requireAdminAuth, async (req: Request, res: Response) => {
-    const id = req.params.id;
-    if (!z.string().uuid().safeParse(id).success) {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id || !z.string().uuid().safeParse(id).success) {
       res.status(400).json({ error: 'ID inválido' });
       return;
     }
