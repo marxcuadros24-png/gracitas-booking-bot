@@ -7,7 +7,7 @@ RUN npm install
 
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build && cp src/db/schema.sql dist/db/schema.sql
+RUN npm run build && cp src/db/schema.sql dist/db/schema.sql && cp src/admin/dashboard.html dist/admin/dashboard.html
 
 FROM node:22-alpine AS runtime
 

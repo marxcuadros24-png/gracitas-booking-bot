@@ -7,21 +7,26 @@ export const BOOKING_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'check_availability',
-      description: 'Consulta los horarios libres reales en PostgreSQL para un recurso y una fecha específica.',
+      description:
+        'Consulta los horarios libres reales en PostgreSQL para una cancha y una fecha específica. Soporta bloques de 1 a 4 horas seguidas.',
       strict: true,
       parameters: {
         type: 'object',
         properties: {
           resource_id: {
             type: 'string',
-            description: 'UUID del recurso (cancha, consultorio o servicio).',
+            description: 'UUID del recurso (cancha).',
           },
           date: {
             type: 'string',
             description: 'Fecha en formato YYYY-MM-DD en zona horaria America/Lima.',
           },
+          duration_hours: {
+            type: 'integer',
+            description: 'Cantidad de horas seguidas solicitadas (1 a 4). Usa 1 por defecto.',
+          },
         },
-        required: ['resource_id', 'date'],
+        required: ['resource_id', 'date', 'duration_hours'],
         additionalProperties: false,
       },
     },
@@ -105,6 +110,7 @@ export const BOOKING_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 const checkAvailabilitySchema = z.object({
   resource_id: z.string().uuid(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  duration_hours: z.number().int().min(1).max(4).default(1),
 });
 
 const createBookingSchema = z.object({
@@ -135,7 +141,11 @@ export async function executeBookingTool(
     switch (toolName) {
       case 'check_availability': {
         const args = checkAvailabilitySchema.parse(parsed);
-        const result = await bookingRepo.checkAvailability(args.resource_id, args.date);
+        const result = await bookingRepo.checkAvailability(
+          args.resource_id,
+          args.date,
+          args.duration_hours,
+        );
         return JSON.stringify(result);
       }
       case 'create_booking': {

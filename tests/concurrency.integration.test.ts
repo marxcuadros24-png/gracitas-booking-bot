@@ -33,9 +33,9 @@ describe.skipIf(!runIntegration)('PostgreSQL GiST overlap lock integration', () 
     expect(resources.length).toBeGreaterThan(0);
     const resourceId = resources[0].id;
 
-    // Isolated future slot in America/Lima (19:00 - 20:00)
+    // Isolated future 2-hour slot in America/Lima (19:00 - 21:00)
     const startIso = '2030-05-15T19:00:00-05:00';
-    const endIso = '2030-05-15T20:00:00-05:00';
+    const endIso = '2030-05-15T21:00:00-05:00';
 
     const [r1, r2] = await Promise.all([
       createBooking(pool, {
@@ -62,6 +62,7 @@ describe.skipIf(!runIntegration)('PostgreSQL GiST overlap lock integration', () 
 
     expect(conflictResult.alternatives?.length).toBeGreaterThan(0);
     expect(confirmedResult.booking?.id).toBeDefined();
+    expect(confirmedResult.booking?.total_price).toBe(80);
 
     const bookingId = confirmedResult.booking!.id;
     const ownerPhone =

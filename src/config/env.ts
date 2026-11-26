@@ -22,6 +22,8 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().default('https://api.openai.com/v1'),
   LLM_MODEL: z.string().default('gpt-4o-mini'),
   LLM_MAX_TOOL_ITERATIONS: z.coerce.number().int().min(1).max(10).default(3),
+
+  ADMIN_TOKEN: z.string().min(1).default('gracitas-admin-2026'),
 });
 
 export type Env = z.infer<typeof envSchema>;

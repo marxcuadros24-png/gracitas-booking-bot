@@ -3,6 +3,8 @@ import type OpenAI from 'openai';
 import type { BookingRepository } from '../src/domain/booking.js';
 import { runLlmTurn } from '../src/llm/orchestrator.js';
 import { executeBookingTool } from '../src/tools/definitions.js';
+import { calculateReminderDelayMs } from '../src/queue/reminderQueue.js';
+import { calculateRangePrice } from '../src/tools/bookingRepository.js';
 
 process.env.DATABASE_URL ??= 'postgresql://booking_user:booking_pass@localhost:5432/booking_db';
 process.env.REDIS_URL ??= 'redis://localhost:6379';
@@ -124,5 +126,22 @@ describe('runLlmTurn', () => {
     expect(parsed.status).toBe('ok');
     expect(parsed.phone).toBe('51999593783');
     expect(getUserBookingsMock).toHaveBeenCalledWith('51999593783');
+  });
+
+  it('calculates multi-hour and evening pricing accurately', () => {
+    const resource = {
+      price_per_hour: '40.00',
+      evening_start_hour: 19,
+      evening_price_per_hour: '50.00',
+    };
+    const start = new Date('2026-11-26T18:00:00-05:00');
+    const end = new Date('2026-11-26T20:00:00-05:00');
+    expect(calculateRangePrice(resource, start, end, 'America/Lima')).toBe(90);
+  });
+
+  it('computes 2-hour reminder delay and skips when under 2 hours away', () => {
+    const now = new Date('2026-11-26T16:00:00-05:00');
+    expect(calculateReminderDelayMs('2026-11-26T19:00:00-05:00', now)).toBe(60 * 60 * 1000);
+    expect(calculateReminderDelayMs('2026-11-26T17:30:00-05:00', now)).toBeNull();
   });
 });

@@ -25,8 +25,12 @@ export type {
 export class PgBookingRepository implements BookingRepository {
   constructor(private readonly pool: Pool) {}
 
-  checkAvailability(resourceId: string, date: string): Promise<CheckAvailabilityResult> {
-    return checkAvailability(this.pool, resourceId, date);
+  checkAvailability(
+    resourceId: string,
+    date: string,
+    durationHours = 1,
+  ): Promise<CheckAvailabilityResult> {
+    return checkAvailability(this.pool, resourceId, date, durationHours);
   }
 
   createBooking(params: CreateBookingInput): Promise<CreateBookingResult> {
@@ -68,9 +72,53 @@ function formatLimaDate(iso: string, timeZone: string): string {
   return `${year}-${month}-${day}`;
 }
 
+function getLimaHour(date: Date, timeZone: string): number {
+  const hourStr = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    hour12: false,
+  }).format(date);
+  return Number(hourStr) % 24;
+}
+
+export function calculateRangePrice(
+  resource: Pick<ResourceSummary, 'price_per_hour' | 'evening_start_hour' | 'evening_price_per_hour'>,
+  start: Date,
+  end: Date,
+  timeZone: string,
+): number {
+  const baseRate = Number(resource.price_per_hour);
+  const eveningStart = resource.evening_start_hour;
+  const eveningRate =
+    resource.evening_price_per_hour !== null ? Number(resource.evening_price_per_hour) : null;
+
+  const totalMinutes = Math.round((end.getTime() - start.getTime()) / 60_000);
+  if (totalMinutes <= 0) return 0;
+
+  // Step in 60-minute chunks (or proportional remainder)
+  let total = 0;
+  let cursorMs = start.getTime();
+  const endMs = end.getTime();
+
+  while (cursorMs < endMs) {
+    const chunkEndMs = Math.min(cursorMs + 60 * 60_000, endMs);
+    const fraction = (chunkEndMs - cursorMs) / (60 * 60_000);
+    const hour = getLimaHour(new Date(cursorMs), timeZone);
+    const rate =
+      eveningStart !== null && eveningRate !== null && hour >= eveningStart
+        ? eveningRate
+        : baseRate;
+    total += rate * fraction;
+    cursorMs = chunkEndMs;
+  }
+
+  return Math.round(total * 100) / 100;
+}
+
 export async function listActiveResources(pool: Pool): Promise<ResourceSummary[]> {
   const { rows } = await pool.query<ResourceSummary>(
-    `SELECT id, name, type, description, slot_duration_minutes, open_hour, close_hour, price_per_hour
+    `SELECT id, name, type, description, slot_duration_minutes, open_hour, close_hour,
+            price_per_hour, evening_start_hour, evening_price_per_hour
      FROM resources
      WHERE is_active = true
      ORDER BY name ASC`,
@@ -82,11 +130,24 @@ export async function checkAvailability(
   pool: Pool,
   resourceId: string,
   date: string,
+  durationHours = 1,
 ): Promise<CheckAvailabilityResult> {
   const tz = getEnv().APP_TIMEZONE;
 
+  if (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 4) {
+    return {
+      status: 'invalid_input',
+      resource_id: resourceId,
+      date,
+      duration_hours: durationHours,
+      timezone: tz,
+      available_slots: [],
+    };
+  }
+
   const resourceRes = await pool.query<ResourceSummary>(
-    `SELECT id, name, type, description, slot_duration_minutes, open_hour, close_hour
+    `SELECT id, name, type, description, slot_duration_minutes, open_hour, close_hour,
+            price_per_hour, evening_start_hour, evening_price_per_hour
      FROM resources
      WHERE id = $1 AND is_active = true`,
     [resourceId],
@@ -97,12 +158,14 @@ export async function checkAvailability(
       status: 'resource_not_found',
       resource_id: resourceId,
       date,
+      duration_hours: durationHours,
       timezone: tz,
       available_slots: [],
     };
   }
 
   const resource = resourceRes.rows[0];
+  const blockMinutes = resource.slot_duration_minutes * durationHours;
 
   const slotsRes = await pool.query<{
     slot_start: Date;
@@ -116,11 +179,11 @@ export async function checkAvailability(
      candidate_slots AS (
        SELECT
          gs AS slot_start,
-         gs + make_interval(mins => $5) AS slot_end
+         gs + make_interval(mins => $7) AS slot_end
        FROM bounds,
        LATERAL generate_series(
          bounds.day_start,
-         bounds.day_end - make_interval(mins => $5),
+         bounds.day_end - make_interval(mins => $7),
          make_interval(mins => $5)
        ) AS gs
      )
@@ -135,7 +198,15 @@ export async function checkAvailability(
            AND b.time_range && tstzrange(cs.slot_start, cs.slot_end, '[)')
        )
      ORDER BY cs.slot_start ASC`,
-    [date, resource.open_hour, resource.close_hour, tz, resource.slot_duration_minutes, resourceId],
+    [
+      date,
+      resource.open_hour,
+      resource.close_hour,
+      tz,
+      resource.slot_duration_minutes,
+      resourceId,
+      blockMinutes,
+    ],
   );
 
   const available_slots: AvailableSlot[] = slotsRes.rows.map((row) => {
@@ -145,6 +216,7 @@ export async function checkAvailability(
       start_time: startIso,
       end_time: endIso,
       label: `${formatLimaLabel(startIso, tz)} - ${formatLimaLabel(endIso, tz)}`,
+      price: calculateRangePrice(resource, row.slot_start, row.slot_end, tz),
     };
   });
 
@@ -153,6 +225,7 @@ export async function checkAvailability(
     resource_id: resource.id,
     resource_name: resource.name,
     date,
+    duration_hours: durationHours,
     timezone: tz,
     available_slots,
   };
@@ -160,13 +233,7 @@ export async function checkAvailability(
 
 export async function createBooking(
   pool: Pool,
-  params: {
-    resourceId: string;
-    startTime: string;
-    endTime: string;
-    customerName: string;
-    customerPhone: string;
-  },
+  params: CreateBookingInput,
 ): Promise<CreateBookingResult> {
   const start = new Date(params.startTime);
   const end = new Date(params.endTime);
@@ -185,20 +252,37 @@ export async function createBooking(
     };
   }
 
+  const tz = getEnv().APP_TIMEZONE;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const resCheck = await client.query('SELECT id FROM resources WHERE id = $1 AND is_active = true', [
-      params.resourceId,
-    ]);
+    const resCheck = await client.query<ResourceSummary>(
+      `SELECT id, name, type, description, slot_duration_minutes, open_hour, close_hour,
+              price_per_hour, evening_start_hour, evening_price_per_hour
+       FROM resources
+       WHERE id = $1 AND is_active = true`,
+      [params.resourceId],
+    );
     if (resCheck.rowCount === 0) {
       await client.query('ROLLBACK');
       return {
         status: 'resource_not_found',
-        message: 'El recurso especificado no existe o está inactivo.',
+        message: 'La cancha especificada no existe o está inactiva.',
       };
     }
+
+    const resource = resCheck.rows[0];
+    const durationMinutes = Math.round((end.getTime() - start.getTime()) / 60_000);
+    if (durationMinutes < resource.slot_duration_minutes || durationMinutes % resource.slot_duration_minutes !== 0) {
+      await client.query('ROLLBACK');
+      return {
+        status: 'invalid_input',
+        message: `La duración debe ser múltiplo de ${resource.slot_duration_minutes} minutos.`,
+      };
+    }
+
+    const totalPrice = calculateRangePrice(resource, start, end, tz);
 
     const insertRes = await client.query<{
       id: string;
@@ -206,12 +290,20 @@ export async function createBooking(
       customer_name: string;
       start_time: Date;
       end_time: Date;
+      total_price: string;
       status: string;
     }>(
-      `INSERT INTO bookings (resource_id, customer_phone, customer_name, time_range, status)
-       VALUES ($1, $2, $3, tstzrange($4::timestamptz, $5::timestamptz, '[)'), 'confirmed')
-       RETURNING id, resource_id, customer_name, lower(time_range) AS start_time, upper(time_range) AS end_time, status`,
-      [params.resourceId, params.customerPhone, params.customerName, start.toISOString(), end.toISOString()],
+      `INSERT INTO bookings (resource_id, customer_phone, customer_name, time_range, total_price, status)
+       VALUES ($1, $2, $3, tstzrange($4::timestamptz, $5::timestamptz, '[)'), $6, 'confirmed')
+       RETURNING id, resource_id, customer_name, lower(time_range) AS start_time, upper(time_range) AS end_time, total_price, status`,
+      [
+        params.resourceId,
+        params.customerPhone,
+        params.customerName,
+        start.toISOString(),
+        end.toISOString(),
+        totalPrice,
+      ],
     );
 
     await client.query('COMMIT');
@@ -222,9 +314,11 @@ export async function createBooking(
       booking: {
         id: row.id,
         resource_id: row.resource_id,
+        resource_name: resource.name,
         customer_name: row.customer_name,
         start_time: row.start_time.toISOString(),
         end_time: row.end_time.toISOString(),
+        total_price: Number(row.total_price),
         status: row.status,
       },
     };
@@ -234,9 +328,9 @@ export async function createBooking(
 
     // 23P01 = exclusion_violation from GiST constraint bookings_no_overlap
     if (pgErr.code === '23P01') {
-      const tz = getEnv().APP_TIMEZONE;
       const dateStr = formatLimaDate(start.toISOString(), tz);
-      const availability = await checkAvailability(pool, params.resourceId, dateStr);
+      const durationHours = Math.max(1, Math.round((end.getTime() - start.getTime()) / 3_600_000));
+      const availability = await checkAvailability(pool, params.resourceId, dateStr, Math.min(durationHours, 4));
       return {
         status: 'conflict',
         message: 'El horario solicitado acaba de ser ocupado por otro cliente.',
@@ -258,6 +352,7 @@ export async function getUserBookings(pool: Pool, phone: string): Promise<UserBo
     customer_name: string;
     start_time: Date;
     end_time: Date;
+    total_price: string;
     status: string;
   }>(
     `SELECT
@@ -267,6 +362,7 @@ export async function getUserBookings(pool: Pool, phone: string): Promise<UserBo
        b.customer_name,
        lower(b.time_range) AS start_time,
        upper(b.time_range) AS end_time,
+       b.total_price,
        b.status
      FROM bookings b
      JOIN resources r ON r.id = b.resource_id
@@ -284,6 +380,7 @@ export async function getUserBookings(pool: Pool, phone: string): Promise<UserBo
     customer_name: row.customer_name,
     start_time: row.start_time.toISOString(),
     end_time: row.end_time.toISOString(),
+    total_price: Number(row.total_price),
     status: row.status,
   }));
 }
@@ -315,4 +412,73 @@ export async function cancelBooking(
     booking_id: bookingId,
     message: 'Reserva cancelada exitosamente.',
   };
+}
+
+export interface AdminBookingItem {
+  id: string;
+  resource_id: string;
+  resource_name: string;
+  customer_name: string;
+  customer_phone: string;
+  start_time: string;
+  end_time: string;
+  total_price: number;
+  status: string;
+}
+
+export async function getAdminBookingsByDate(pool: Pool, date: string): Promise<AdminBookingItem[]> {
+  const tz = getEnv().APP_TIMEZONE;
+  const { rows } = await pool.query<{
+    id: string;
+    resource_id: string;
+    resource_name: string;
+    customer_name: string;
+    customer_phone: string;
+    start_time: Date;
+    end_time: Date;
+    total_price: string;
+    status: string;
+  }>(
+    `SELECT
+       b.id,
+       b.resource_id,
+       r.name AS resource_name,
+       b.customer_name,
+       b.customer_phone,
+       lower(b.time_range) AS start_time,
+       upper(b.time_range) AS end_time,
+       b.total_price,
+       b.status
+     FROM bookings b
+     JOIN resources r ON r.id = b.resource_id
+     WHERE b.time_range && tstzrange(
+       ($1::date AT TIME ZONE $2),
+       (($1::date + 1) AT TIME ZONE $2),
+       '[)'
+     )
+     ORDER BY lower(b.time_range) ASC, r.name ASC`,
+    [date, tz],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    resource_id: row.resource_id,
+    resource_name: row.resource_name,
+    customer_name: row.customer_name,
+    customer_phone: row.customer_phone,
+    start_time: row.start_time.toISOString(),
+    end_time: row.end_time.toISOString(),
+    total_price: Number(row.total_price),
+    status: row.status,
+  }));
+}
+
+export async function adminCancelBooking(pool: Pool, bookingId: string): Promise<boolean> {
+  const { rowCount } = await pool.query(
+    `UPDATE bookings
+     SET status = 'cancelled', cancelled_at = NOW()
+     WHERE id = $1 AND status = 'confirmed'`,
+    [bookingId],
+  );
+  return (rowCount ?? 0) > 0;
 }
