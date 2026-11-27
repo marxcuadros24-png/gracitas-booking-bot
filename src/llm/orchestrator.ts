@@ -19,6 +19,7 @@ export interface OrchestratorInput {
   maxIterations?: number;
   now?: Date;
   onBookingConfirmed?: (booking: NonNullable<CreateBookingResult['booking']>) => Promise<void>;
+  onBookingCancelled?: () => Promise<void>;
 }
 
 export async function runLlmTurn(input: OrchestratorInput): Promise<string> {
@@ -82,6 +83,17 @@ export async function runLlmTurn(input: OrchestratorInput): Promise<string> {
           const parsed = JSON.parse(toolOutput) as CreateBookingResult;
           if (parsed.status === 'confirmed' && parsed.booking) {
             await input.onBookingConfirmed(parsed.booking);
+          }
+        } catch {
+          // Ignore callback parsing errors
+        }
+      }
+
+      if (toolCall.function.name === 'cancel_booking' && input.onBookingCancelled) {
+        try {
+          const parsed = JSON.parse(toolOutput) as { status?: string };
+          if (parsed.status === 'cancelled') {
+            await input.onBookingCancelled();
           }
         } catch {
           // Ignore callback parsing errors

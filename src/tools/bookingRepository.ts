@@ -452,8 +452,8 @@ export async function getAdminBookingsByDate(pool: Pool, date: string): Promise<
      FROM bookings b
      JOIN resources r ON r.id = b.resource_id
      WHERE b.time_range && tstzrange(
-       ($1::date AT TIME ZONE $2),
-       (($1::date + 1) AT TIME ZONE $2),
+       (($1::date + TIME '00:00') AT TIME ZONE $2),
+       ((($1::date + 1) + TIME '00:00') AT TIME ZONE $2),
        '[)'
      )
      ORDER BY lower(b.time_range) ASC, r.name ASC`,

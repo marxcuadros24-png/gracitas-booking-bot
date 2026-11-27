@@ -9,6 +9,7 @@ import {
 import { closePool, getPool } from './db/pool.js';
 import { runLlmTurn } from './llm/orchestrator.js';
 import { BOOKING_QUEUE_NAME, type IncomingWhatsAppJob } from './queue/bookingQueue.js';
+import { publishBookingsUpdated } from './queue/events.js';
 import { closeRedis, getRedisConnection } from './queue/redis.js';
 import {
   BOOKING_REMINDER_QUEUE_NAME,
@@ -64,6 +65,7 @@ const worker = new Worker<IncomingWhatsAppJob>(
       history,
       resources,
       onBookingConfirmed: async (booking) => {
+        await publishBookingsUpdated('whatsapp');
         await scheduleBookingReminder({
           bookingId: booking.id,
           phone,
@@ -71,6 +73,9 @@ const worker = new Worker<IncomingWhatsAppJob>(
           resourceName: booking.resource_name ?? 'Cancha',
           startTimeIso: booking.start_time,
         });
+      },
+      onBookingCancelled: async () => {
+        await publishBookingsUpdated('whatsapp');
       },
     });
 

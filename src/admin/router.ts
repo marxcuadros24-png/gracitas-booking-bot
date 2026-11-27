@@ -5,6 +5,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod';
 import { getEnv } from '../config/env.js';
 import { getPool } from '../db/pool.js';
+import { createBookingsSubscriber, publishBookingsUpdated } from '../queue/events.js';
 import { scheduleBookingReminder } from '../queue/reminderQueue.js';
 import {
   adminCancelBooking,
@@ -55,6 +56,33 @@ export function createAdminRouter(): Router {
     res.status(200).type('text/html; charset=utf-8').send(html);
   });
 
+  router.get('/admin/api/events', (req: Request, res: Response) => {
+    const token = typeof req.query.token === 'string' ? req.query.token : '';
+    if (!verifyTokenConstantTime(token, getEnv().ADMIN_TOKEN)) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+    res.write('event: connected\ndata: {"status":"ok"}\n\n');
+
+    const heartbeat = setInterval(() => {
+      res.write(': ping\n\n');
+    }, 20_000);
+
+    const unsubscribe = createBookingsSubscriber((payload) => {
+      res.write(`event: bookings_updated\ndata: ${payload}\n\n`);
+    });
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      void unsubscribe();
+    });
+  });
+
   router.get('/admin/api/overview', requireAdminAuth, async (req: Request, res: Response) => {
     const dateParam = typeof req.query.date === 'string' ? req.query.date : '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
@@ -89,6 +117,7 @@ export function createAdminRouter(): Router {
     const result = await createBooking(pool, parsed.data);
 
     if (result.status === 'confirmed' && result.booking) {
+      await publishBookingsUpdated('admin');
       await scheduleBookingReminder({
         bookingId: result.booking.id,
         phone: parsed.data.customerPhone,
@@ -115,6 +144,7 @@ export function createAdminRouter(): Router {
       return;
     }
 
+    await publishBookingsUpdated('admin');
     res.status(200).json({ status: 'cancelled', id });
   });
 
