@@ -366,8 +366,8 @@
         <select id="modalCourt" required></select>
         <input id="modalStartHour" type="number" min="15" max="22" value="19" required placeholder="Hora inicio (15-22)" />
         <input id="modalDuration" type="number" min="1" max="4" value="1" required placeholder="Horas (1-4)" />
-        <input id="modalName" type="text" required placeholder="Nombre del cliente" />
-        <input id="modalPhone" type="tel" required placeholder="Teléfono (ej. 51999888777)" />
+        <input id="modalName" type="text" required minlength="2" maxlength="60" placeholder="Nombre del cliente (máx. 60 caracteres)" />
+        <input id="modalPhone" type="tel" required minlength="9" maxlength="15" pattern="[0-9]{9,15}" inputmode="numeric" placeholder="Celular (9 a 15 dígitos, ej. 51999888777)" />
       </div>
       <div id="modalError" class="alert hidden" style="margin-top:10px;"></div>
       <div class="form-actions">
@@ -408,6 +408,7 @@
 
     async function apiFetch(url, options = {}) {
       const res = await fetch(url, {
+        cache: 'no-store',
         ...options,
         headers: {
           'Content-Type': 'application/json',
@@ -451,10 +452,12 @@
       }).format(new Date(iso));
     }
 
-    async function loadOverview() {
+    async function loadOverview({ silent = false } = {}) {
       errorBanner.classList.add('hidden');
-      loadingState.classList.remove('hidden');
-      courtsGrid.innerHTML = '';
+      if (!silent) {
+        loadingState.classList.remove('hidden');
+        courtsGrid.innerHTML = '';
+      }
 
       try {
         const res = await apiFetch(`/admin/api/overview?date=${encodeURIComponent(dateInput.value)}`);
@@ -471,7 +474,9 @@
           errorBanner.classList.remove('hidden');
         }
       } finally {
-        loadingState.classList.add('hidden');
+        if (!silent) {
+          loadingState.classList.add('hidden');
+        }
       }
     }
 
@@ -619,7 +624,21 @@
 
       const startHour = Number(document.getElementById('modalStartHour').value);
       const duration = Number(document.getElementById('modalDuration').value);
+      const customerName = document.getElementById('modalName').value.trim();
+      const customerPhone = document.getElementById('modalPhone').value.trim().replace(/^\+/, '');
       const endHour = startHour + duration;
+
+      if (startHour < 15 || startHour > 22 || duration < 1 || duration > 4 || endHour > 23) {
+        modalError.textContent = 'El horario debe estar dentro de 15:00 a 23:00 (máximo 4 horas).';
+        modalError.classList.remove('hidden');
+        return;
+      }
+
+      if (!/^\d{9,15}$/.test(customerPhone)) {
+        modalError.textContent = 'Ingresa un celular válido de 9 a 15 dígitos (ej. 51999888777).';
+        modalError.classList.remove('hidden');
+        return;
+      }
 
       const startTime = `${dateInput.value}T${String(startHour).padStart(2, '0')}:00:00-05:00`;
       const endTime = `${dateInput.value}T${String(endHour).padStart(2, '0')}:00:00-05:00`;
@@ -631,13 +650,13 @@
             resourceId: modalCourt.value,
             startTime,
             endTime,
-            customerName: document.getElementById('modalName').value.trim(),
-            customerPhone: document.getElementById('modalPhone').value.trim(),
+            customerName,
+            customerPhone,
           }),
         });
         const data = await res.json();
         if (!res.ok || data.status !== 'confirmed') {
-          modalError.textContent = data.message || 'No se pudo crear la reserva.';
+          modalError.textContent = data.message || data.error || 'No se pudo crear la reserva.';
           modalError.classList.remove('hidden');
           return;
         }
@@ -650,6 +669,12 @@
         modalError.classList.remove('hidden');
       }
     });
+
+    setInterval(() => {
+      if (adminToken && !document.hidden && !bookingDialog.open) {
+        loadOverview({ silent: true });
+      }
+    }, 10000);
 
     if (adminToken) {
       showDashboard();

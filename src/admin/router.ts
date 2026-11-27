@@ -20,8 +20,21 @@ const createAdminBookingSchema = z.object({
   resourceId: z.string().uuid(),
   startTime: z.string().min(1),
   endTime: z.string().min(1),
-  customerName: z.string().trim().min(1).max(120),
-  customerPhone: z.string().trim().min(5).max(30),
+  customerName: z
+    .string()
+    .trim()
+    .min(2, 'El nombre debe tener al menos 2 caracteres.')
+    .max(60, 'El nombre no puede superar los 60 caracteres.')
+    .regex(/^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s.'-]+$/, 'El nombre contiene caracteres inválidos.'),
+  customerPhone: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/^\+/, ''))
+    .pipe(
+      z
+        .string()
+        .regex(/^\d{9,15}$/, 'El celular debe tener entre 9 y 15 dígitos numéricos (ej. 51999888777).'),
+    ),
 });
 
 function requireAdminAuth(req: Request, res: Response, next: NextFunction): void {
@@ -61,7 +74,14 @@ export function createAdminRouter(): Router {
   router.post('/admin/api/bookings', requireAdminAuth, async (req: Request, res: Response) => {
     const parsed = createAdminBookingSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      const firstIssue = parsed.error.issues[0]?.message ?? 'Datos inválidos';
+      res.status(400).json({ error: firstIssue, message: firstIssue, details: parsed.error.flatten() });
+      return;
+    }
+
+    const durationMs = new Date(parsed.data.endTime).getTime() - new Date(parsed.data.startTime).getTime();
+    if (Number.isNaN(durationMs) || durationMs <= 0 || durationMs > 4 * 60 * 60 * 1000) {
+      res.status(400).json({ error: 'La duración debe ser entre 1 y 4 horas.' });
       return;
     }
 
